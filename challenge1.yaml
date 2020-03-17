@@ -1,0 +1,157 @@
+---
+- hosts: all
+  vars:
+    nagios_version: '4.4.5'
+    nagios_plugin_version: '2.2.1'
+    packages_centos:
+      - gcc 
+      - glibc
+      - glibc-common
+      - wget 
+      - unzip 
+      - httpd
+      - php 
+      - gd
+      - gd-dev
+      - perl 
+      - postfix 
+      - autoconf
+      - make
+      - automake
+      - openssl-devel
+      - build-essential 
+      - net-snmp
+      - libnet-snmp-perl 
+      - gettext
+    nagios_code_location: /tmp/nagioscore.tar.gz
+    nagios_plugin_location: /tmp/nagios-plugins.tar.gz
+  become: yes
+  tasks:
+    - name: fail for unsupported os
+      fail:
+        msg: This playbook runs only on centos
+      when: ansible_os_family != 'redhat'
+    - name: install packages for centos
+      yum:
+        name: "{{ item }}
+        status: present
+      loop: "{{ packages_centos }}"
+      tags:
+        - nagios
+    - name: Download the source to temp folder
+      get_url:
+        dest: "{{ nagios_code_location }}"
+        url: "https://github.com/NagiosEnterprises/nagioscore/archive/nagios-{{ nagios_version }}.tar.gz"
+      tags:
+        - nagios
+    - name: untar the code
+      unarchive:
+        src: "{{ nagios_code_location }}"
+        dest: "/tmp/"
+      tags:
+        - nagios
+    - name: Compile Code
+      shell:
+        cmd: sudo ./configure --with-httpd-conf=/etc/centos/sites-enabled > configure.log && sudo make all > makeoutput.log
+      args:
+        chdir: "/tmp/nagioscore-nagios-{{ nagios_version }}/"
+      tags:
+        - nagios
+    - name: Create User and Group
+      shell:
+        cmd: sudo make install-groups-users > installgroups.log && sudo usermod -a -G nagios www-data > usermod.log
+      args:
+        chdir: "/tmp/nagioscore-nagios-{{ nagios_version }}/"
+      tags:
+        - nagios
+    - name: Install Binaries
+      shell:
+        cmd: sudo make install > makeinstall.log
+      args:
+        chdir: "/tmp/nagioscore-nagios-{{ nagios_version }}/"
+      tags:
+        - nagios
+    - name: Install Service / Daemon
+      shell:
+        cmd: sudo make install-daemoninit > daemoninit.log
+      args:
+        chdir: "/tmp/nagioscore-nagios-{{ nagios_version }}/"
+      tags:
+        - nagios
+    - name: Install Command Mode
+      shell:
+        cmd: sudo make install-commandmode > commandmode.log
+      args:
+        chdir: "/tmp/nagioscore-nagios-{{ nagios_version }}/"
+      tags:
+        - nagios
+    - name: Install Configuration Files
+      shell:
+        cmd: sudo make install-config > config.log
+      args:
+        chdir: "/tmp/nagioscore-nagios-{{ nagios_version }}/"
+      tags:
+        - nagios
+    - name: Install centos Config Files
+      shell:
+        cmd: sudo make install-webconf > webconf.log && sudo a2enmod rewrite > a2enmodrewrite.log && sudo a2enmod cgi > cgi.log
+      args:
+        chdir: "/tmp/nagioscore-nagios-{{ nagios_version }}/"
+      tags:
+        - nagios
+    - name: Install latest passlib with pip
+      pip: name=passlib
+      tags:
+        - nagios
+    - name: Create nagiosadmin user account
+      htpasswd:
+        path: /usr/local/nagios/etc/htpasswd.users # required. Path to the file that contains the usernames and passwords
+        name: nagiosadmin # required. User name to add or remove
+        password: nagiosadmin # not required. Password associated with user.,Must be specified if user does not exist yet.
+      tags:
+        - nagios
+    - name: start httpd
+      service:
+        name: httpd
+        state: started
+        enabled: true
+      tags:
+        - nagios
+    - name: start nagios
+      service:
+        name: nagios
+        state: started
+        enabled: true
+      tags:
+        - nagios
+    - name: Download the plugin to temp folder
+      get_url:
+        dest: "{{ nagios_plugin_location }}"
+        url: "https://github.com/nagios-plugins/nagios-plugins/archive/release-{{ nagios_plugin_version }}.tar.gz"
+      tags:
+        - plugin
+    - name: untar the plugin code
+      unarchive:
+        src: "{{ nagios_plugin_location }}"
+        dest: "/tmp/"
+      tags:
+        - plugin
+    - name: Compile + Install
+      shell:
+        cmd: sudo ./tools/setup > setup.log && sudo ./configure > configue.log && sudo make > make.log && sudo make install
+      args:
+        chdir: "/tmp/nagios-plugins-release-{{ nagios_plugin_version }}/"
+      tags:
+        - plugin
+    - name: restart nagios
+      service:
+        name: nagios
+        state: restarted
+      tags:
+        - plugin
+    - name: restart httpd
+      service:
+        name: httpd
+        state: restarted
+      tags:
+        - plugin
